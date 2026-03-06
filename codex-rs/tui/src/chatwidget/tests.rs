@@ -6197,6 +6197,74 @@ async fn review_branch_picker_escape_navigates_back_then_dismisses() {
     );
 }
 
+#[tokio::test]
+async fn review_branch_picker_snapshot_includes_remote_refs() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.open_review_popup();
+    chat.show_review_branch_picker_with_refs(
+        "feature/current".to_string(),
+        vec![
+            "main".to_string(),
+            "origin/main".to_string(),
+            "upstream/release".to_string(),
+        ],
+    );
+
+    let popup = render_bottom_popup(&chat, 80);
+    assert_snapshot!("review_branch_picker_remote_refs", popup);
+}
+
+#[tokio::test]
+async fn review_branch_picker_selecting_remote_ref_sends_review_op() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.show_review_branch_picker_with_refs(
+        "main".to_string(),
+        vec!["origin/main".to_string(), "origin/release".to_string()],
+    );
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    match rx.try_recv().expect("expected review app event") {
+        AppEvent::CodexOp(Op::Review { review_request }) => {
+            assert_eq!(
+                review_request,
+                ReviewRequest {
+                    target: ReviewTarget::BaseBranch {
+                        branch: "origin/main".to_string(),
+                    },
+                    user_facing_hint: None,
+                }
+            );
+        }
+        other => panic!("unexpected app event: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn slash_review_remote_ref_submits_base_branch_review() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane
+        .set_composer_text("/review origin/main".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    match rx.try_recv().expect("expected review app event") {
+        AppEvent::CodexOp(Op::Review { review_request }) => {
+            assert_eq!(
+                review_request,
+                ReviewRequest {
+                    target: ReviewTarget::BaseBranch {
+                        branch: "origin/main".to_string(),
+                    },
+                    user_facing_hint: None,
+                }
+            );
+        }
+        other => panic!("unexpected app event: {other:?}"),
+    }
+}
+
 fn render_bottom_first_row(chat: &ChatWidget, width: u16) -> String {
     let height = chat.desired_height(width);
     let area = Rect::new(0, 0, width, height);

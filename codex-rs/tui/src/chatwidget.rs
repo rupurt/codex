@@ -63,7 +63,7 @@ use codex_core::features::Feature;
 use codex_core::find_thread_name_by_id;
 use codex_core::git_info::current_branch_name;
 use codex_core::git_info::get_git_repo_root;
-use codex_core::git_info::local_git_branches;
+use codex_core::git_info::review_base_refs;
 use codex_core::mcp::McpManager;
 use codex_core::models_manager::manager::ModelsManager;
 use codex_core::plugins::PluginsManager;
@@ -4191,11 +4191,20 @@ impl ChatWidget {
                 else {
                     return;
                 };
+                let target = if prepared_args.contains('/')
+                    && prepared_args.split_whitespace().count() == 1
+                {
+                    ReviewTarget::BaseBranch {
+                        branch: prepared_args.clone(),
+                    }
+                } else {
+                    ReviewTarget::Custom {
+                        instructions: prepared_args,
+                    }
+                };
                 self.submit_op(Op::Review {
                     review_request: ReviewRequest {
-                        target: ReviewTarget::Custom {
-                            instructions: prepared_args,
-                        },
+                        target,
                         user_facing_hint: None,
                     },
                 });
@@ -8199,14 +8208,10 @@ impl ChatWidget {
         });
     }
 
-    pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path) {
-        let branches = local_git_branches(cwd).await;
-        let current_branch = current_branch_name(cwd)
-            .await
-            .unwrap_or_else(|| "(detached HEAD)".to_string());
-        let mut items: Vec<SelectionItem> = Vec::with_capacity(branches.len());
+    fn show_review_branch_picker_with_refs(&mut self, current_branch: String, refs: Vec<String>) {
+        let mut items: Vec<SelectionItem> = Vec::with_capacity(refs.len());
 
-        for option in branches {
+        for option in refs {
             let branch = option.clone();
             items.push(SelectionItem {
                 name: format!("{current_branch} -> {branch}"),
@@ -8234,6 +8239,14 @@ impl ChatWidget {
             search_placeholder: Some("Type to search branches".to_string()),
             ..Default::default()
         });
+    }
+
+    pub(crate) async fn show_review_branch_picker(&mut self, cwd: &Path) {
+        let refs = review_base_refs(cwd).await;
+        let current_branch = current_branch_name(cwd)
+            .await
+            .unwrap_or_else(|| "(detached HEAD)".to_string());
+        self.show_review_branch_picker_with_refs(current_branch, refs);
     }
 
     pub(crate) async fn show_review_commit_picker(&mut self, cwd: &Path) {

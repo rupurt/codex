@@ -663,6 +663,34 @@ pub async fn local_git_branches(cwd: &Path) -> Vec<String> {
     branches
 }
 
+/// Returns reviewable base refs for `/review`.
+///
+/// Local branches are listed first, followed by remote refs. Symbolic remote
+/// refs such as `origin/HEAD` are excluded because they are aliases, not
+/// review targets.
+pub async fn review_base_refs(cwd: &Path) -> Vec<String> {
+    let mut refs = local_git_branches(cwd).await;
+    let mut seen: HashSet<String> = refs.iter().cloned().collect();
+
+    let mut remote_refs: Vec<String> = if let Some(out) =
+        run_git_command_with_timeout(&["branch", "--remotes", "--format=%(refname:short)"], cwd)
+            .await
+        && out.status.success()
+    {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && !s.ends_with("/HEAD") && seen.insert(s.clone()))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    remote_refs.sort_unstable();
+    refs.extend(remote_refs);
+    refs
+}
+
 /// Returns the current checked out branch name.
 pub async fn current_branch_name(cwd: &Path) -> Option<String> {
     let out = run_git_command_with_timeout(&["branch", "--show-current"], cwd).await?;
@@ -680,6 +708,7 @@ mod tests {
     use super::*;
 
     use core_test_support::skip_if_sandbox;
+    use pretty_assertions::assert_eq;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -850,6 +879,65 @@ mod tests {
             .expect("Failed to push initial commit");
 
         (repo_path, branch)
+    }
+
+    #[tokio::test]
+    async fn review_base_refs_include_remote_refs_without_symbolic_head() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let (repo_path, branch) = create_test_git_repo_with_remote(&temp_dir).await;
+
+        Command::new("git")
+            .args(["checkout", "-b", "feature/local"])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to create local feature branch");
+
+        Command::new("git")
+            .args(["checkout", &branch])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to switch back to default branch");
+
+        Command::new("git")
+            .args(["checkout", "-b", "feature/remote"])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to create remote feature branch");
+
+        Command::new("git")
+            .args(["push", "-u", "origin", "feature/remote"])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to push remote feature branch");
+
+        Command::new("git")
+            .args(["checkout", &branch])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to switch back to default branch");
+
+        Command::new("git")
+            .args(["branch", "-D", "feature/remote"])
+            .current_dir(&repo_path)
+            .output()
+            .await
+            .expect("Failed to delete local remote branch");
+
+        let refs = review_base_refs(&repo_path).await;
+        assert_eq!(
+            refs,
+            vec![
+                branch.clone(),
+                "feature/local".to_string(),
+                "origin/feature/remote".to_string(),
+                format!("origin/{branch}"),
+            ]
+        );
     }
 
     #[tokio::test]
