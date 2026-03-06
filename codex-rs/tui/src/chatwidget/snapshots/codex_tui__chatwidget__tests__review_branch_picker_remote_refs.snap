@@ -4,8 +4,9 @@ expression: popup
 ---
   Select a base branch
 
-› 1. feature/current -> main
-  2. feature/current -> origin/main
-  3. feature/current -> upstream/release
+  Type to search branches
+› feature/current -> main
+  feature/current -> origin/main
+  feature/current -> upstream/release
 
   Press enter to confirm or esc to go back

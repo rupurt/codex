@@ -6243,14 +6243,14 @@ async fn review_branch_picker_selecting_remote_ref_sends_review_op() {
 
 #[tokio::test]
 async fn slash_review_remote_ref_submits_base_branch_review() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(None).await;
 
     chat.bottom_pane
         .set_composer_text("/review origin/main".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
-    match rx.try_recv().expect("expected review app event") {
-        AppEvent::CodexOp(Op::Review { review_request }) => {
+    match op_rx.try_recv().expect("expected review op") {
+        Op::Review { review_request } => {
             assert_eq!(
                 review_request,
                 ReviewRequest {
@@ -6261,7 +6261,7 @@ async fn slash_review_remote_ref_submits_base_branch_review() {
                 }
             );
         }
-        other => panic!("unexpected app event: {other:?}"),
+        other => panic!("unexpected op: {other:?}"),
     }
 }
 
